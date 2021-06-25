@@ -1,0 +1,94 @@
+pipeline{
+    agent any
+    tools {
+        terraform 'Terraform'
+    }
+
+    stages{
+        stage('Git'){
+            steps{
+               git 'https://github.com/su115/tfz2.git'
+            }
+        }
+        stage('Terra S3 bucket'){
+            steps{
+                dir('global/s3'){
+                    sh 'terraform init'
+                    sh 'terraform apply --auto-approve'
+                }
+            }
+        }
+        stage('Terra VPC'){
+            steps{
+                dir('stage/vpc'){
+                    sh 'terraform init'
+                    sh 'terraform apply --auto-approve'
+                }
+            }
+        }
+        stage('Terra Server'){
+            steps{
+                dir('stage/servers'){
+                    sh 'terraform init'
+                    sh 'terraform apply --auto-approve'
+                    
+                    //Set variables
+                    script{
+                        all_ip = sh(returnStdout: true, script: "terraform output all_ip").trim()
+                        all_ip = Eval.me(all_ip)
+                        echo "${all_ip[0]}"
+                        tomcat="${all_ip[0]}"
+                        mysql="${all_ip[1]}"
+                    }
+                }
+            }
+        }
+    
+        stage("Ansible"){
+		//Maybe Problems with connect
+		
+            steps{
+		sleep 10 //wait 10 sec
+                dir("stage/servers/tomcat"){
+                    //set ip in inventory file
+                    sh "./set_ip.sh ${tomcat} ${mysql}"
+                    
+                    //use playbooks
+                    ansiblePlaybook colorized: true, credentialsId: 'ansibleKey', disableHostKeyChecking: true, installation: 'ansible', inventory: 'hosts', playbook: 'tomcat.yml'
+                    ansiblePlaybook colorized: true, credentialsId: 'ansibleKey', disableHostKeyChecking: true, installation: 'ansible', inventory: 'hosts', playbook: 'mysql.yml'
+                }
+                
+            }
+        }
+        stage("Test Tomcat"){
+            steps{
+                dir("stage/servers/test"){
+                    sh "./test_tomcat.sh ${tomcat}"
+                }
+            }
+        }
+        stage("Destroy Infrastructure"){
+            steps{
+                // at firt destroy instances
+                dir('stage/servers'){
+                    sh 'terraform destroy --auto-approve'
+                }
+                // then vpc
+                dir('stage/vpc'){
+                    sh 'terraform destroy --auto-approve'
+                }
+                // at the end destroy s3 bucket
+                dir('global/s3'){
+                    sh 'terraform destroy --auto-approve'
+                }
+            }
+        }
+        stage("Post"){
+            steps{
+                //send mail
+                mail bcc: '', body: "Build Complete!!! ${env.BUILD_URL}", cc: '', from: '', replyTo: '', subject: 'Jenkins', to: 'ihor.prots.lviv@gmail.com'
+                }
+        }
+    }
+
+}

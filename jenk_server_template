@@ -1,0 +1,74 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 3.27"
+    }
+  }
+
+  required_version = ">= 0.14.9"
+}
+
+provider "aws" {
+  profile = "Igor"
+  region  = "eu-west-1"
+}
+
+
+#you must have this role!!! 
+# he help me to create it
+# https://www.youtube.com/watch?v=5jwYGCAr_pw
+
+data "aws_iam_role" "created"{
+	name="terraform-jenkins"
+}
+resource "aws_iam_instance_profile" "admin"{
+	name="admin-jenk"
+	role=data.aws_iam_role.created.name
+}
+resource "aws_instance" "jenk-serv" {
+  ami           = "ami-0a8e758f5e873d1c1"
+  instance_type = "t2.micro"
+  user_data = "${file("prepairs.sh")}"
+  vpc_security_group_ids = [aws_security_group.jenk-sg.id]
+
+  iam_instance_profile=aws_iam_instance_profile.admin.name
+  associate_public_ip_address = true
+  key_name = "id_rsa"
+  tags = {
+    Name = "Ubuntu Jenkins"
+  }
+}
+
+resource "aws_security_group" "jenk-sg" {
+  name = "jenkins-sg"
+  ingress{
+	from_port = 22
+	to_port = 22
+	protocol = "tcp"
+	cidr_blocks = ["my_ip"]
+}
+
+  ingress{
+	from_port = 8080
+	to_port = 8080
+	protocol = "tcp"
+	cidr_blocks = ["my_ip"]
+}
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+}
+output "http"{
+	value="http://${aws_instance.jenk-serv.public_ip}:8080"
+}
+
+output "ssh"{
+	value="ssh ubuntu@${aws_instance.jenk-serv.public_ip}"
+}
+

@@ -1,0 +1,5 @@
+backup.tar
+.terra*
+terra*
+main.tf
+ansibleKey
